@@ -2,3 +2,4 @@ streamlit
 uvicorn
 fastapi
 requests
+openpyxl
