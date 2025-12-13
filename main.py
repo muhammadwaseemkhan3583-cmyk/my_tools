@@ -4,6 +4,9 @@ import pandas as pd
 from io import BytesIO
 import subprocess
 import atexit
+import os
+import sys
+import time
 
 st.set_page_config(page_title="Information Extractor", layout="centered")
 
@@ -11,12 +14,59 @@ st.set_page_config(page_title="Information Extractor", layout="centered")
 def start_server():
     """Starts the FastAPI server as a background process."""
     if "server_process" not in st.session_state:
-        st.session_state.server_process = subprocess.Popen(
-            ["uvicorn", "phoneinfoserver:app"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE
-        )
-        st.info("Starting backend server...")
+        # Determine command based on environment
+        # On Streamlit Cloud, there's no 'venv' folder next to the script
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        venv_path = os.path.join(script_dir, "venv")
+        
+        command = []
+        # If venv exists and we are on Windows (as per user's setup)
+        if os.path.exists(venv_path) and sys.platform == "win32":
+            python_executable = os.path.join(venv_path, "Scripts", "python.exe")
+            command = [
+                python_executable,
+                "-m",
+                "uvicorn",
+                "phoneinfoserver:app",
+                "--host", "127.0.0.1" # Bind to localhost for local dev
+            ]
+            st.info("Starting local backend server...")
+        else:
+            # For Streamlit Cloud or other environments, assume uvicorn is in PATH
+            # and bind to 0.0.0.0 to be accessible within the container
+            command = ["uvicorn", "phoneinfoserver:app", "--host", "0.0.0.0"]
+            st.info("Starting backend server for deployment...")
+
+        try:
+            st.session_state.server_process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+            )
+            
+            # Give the server a few seconds to initialize
+            time.sleep(3)
+
+            # Check if the process terminated unexpectedly
+            if st.session_state.server_process.poll() is not None:
+                st.error("Backend server failed to start. See logs below.")
+                stdout, stderr = st.session_state.server_process.communicate()
+                st.text("Server stdout:")
+                st.code(stdout.decode('utf-8', errors='ignore'))
+                st.text("Server stderr:")
+                st.code(stderr.decode('utf-8', errors='ignore'))
+                st.session_state.server_process = None
+            else:
+                st.info("Backend server started successfully.")
+
+        except FileNotFoundError:
+            st.error(f"Error: The command '{command[0]}' was not found.")
+            st.error("Please ensure that your environment is set up correctly. If running locally, make sure the venv is in the 'my_tools' directory. If on Streamlit Cloud, check your requirements.txt.")
+            st.session_state.server_process = None
+        except Exception as e:
+            st.error(f"An unexpected error occurred while starting the server: {e}")
+            st.session_state.server_process = None
 
 def stop_server():
     """Stops the FastAPI server if it's running."""
