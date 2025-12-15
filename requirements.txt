@@ -3,3 +3,6 @@ uvicorn
 fastapi
 requests
 openpyxl
+httpx
+beautifulsoup4
+lxml

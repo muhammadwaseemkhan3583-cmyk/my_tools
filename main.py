@@ -108,7 +108,7 @@ def show_login_page():
     
     credentials = {
         "passwords": {
-            "m.waseem5196@gamil.com": "waseemkhan"
+            "m.waseem5196@gmail.com": "waseemkhan1122"
         }
     }
 
@@ -143,59 +143,161 @@ def show_main_app():
     st.markdown("---")
 
     if search_type == "SIM Info":
-        st.header("SIM Owner Details (Multiple Search)")
+        st.header("SIM Owner Details")
 
-        search_terms = st.text_area(
-            "Enter Phone Numbers / CNICs",
-            placeholder="03001234567\n03111234567\n3520212345678",
-            help="Enter multiple values separated by new line or comma"
-        )
+        # Option to either manually enter numbers or upload a file
+        input_method = st.radio("Choose input method:", ("Manual Entry", "Upload Excel File"))
 
-        if st.button("🔍 Search SIM Info"):
-            raw_items = search_terms.replace(",", "\n").split("\n")
-            items = [i.strip() for i in raw_items if i.strip()]
+        if input_method == "Manual Entry":
+            st.subheader("Multiple Search")
+            search_terms = st.text_area(
+                "Enter Phone Numbers / CNICs",
+                placeholder="03001234567\n03111234567\n3520212345678",
+                help="Enter multiple values separated by new line or comma"
+            )
 
-            if not items:
-                st.error("Please enter at least one phone number or CNIC.")
-            else:
-                results = []
-                with st.spinner("Fetching SIM data..."):
-                    for item in items:
-                        if not item.isdigit() or len(item) not in (11, 13):
-                            results.append({
-                                "Input": item, "Name": "Invalid", "Number": "Invalid",
-                                "CNIC": "Invalid", "Address": "Invalid", "Status": "Invalid Format"
-                            })
-                            continue
-                        try:
-                            response = requests.post(f"{SIM_BACKEND_URL}?phone_number={item}", timeout=10)
-                            data = response.json()
-                            if data.get("error"):
+            if st.button("🔍 Search SIM Info"):
+                raw_items = search_terms.replace(",", "\n").split("\n")
+                items = [i.strip() for i in raw_items if i.strip()]
+
+                # Add '0' to 10-digit numbers
+                processed_items = []
+                for item in items:
+                    if len(item) == 10 and item.isdigit():
+                        processed_items.append("0" + item)
+                    else:
+                        processed_items.append(item)
+                items = processed_items
+
+                if not items:
+                    st.error("Please enter at least one phone number or CNIC.")
+                else:
+                    results = []
+                    with st.spinner("Fetching SIM data..."):
+                        for item in items:
+                            if not item.isdigit() or len(item) not in (11, 13):
+                                results.append({
+                                    "Input": item, "Name": "Invalid", "Number": "Invalid",
+                                    "CNIC": "Invalid", "Address": "Invalid", "Status": "Invalid Format"
+                                })
+                                continue
+                            try:
+                                response = requests.post(f"{SIM_BACKEND_URL}?phone_number={item}", timeout=10)
+                                data = response.json()
+                                if isinstance(data, dict) and data.get("error"):
+                                    results.append({
+                                        "Input": item, "Name": "", "Number": "", "CNIC": "",
+                                        "Address": "", "Status": data["error"]
+                                    })
+                                elif isinstance(data, list):
+                                    for record in data:
+                                        results.append({
+                                            "Input": item, "Name": record.get("name", ""), "Number": record.get("number", ""),
+                                            "CNIC": record.get("cnic", ""), "Address": record.get("address", ""), "Status": "Found"
+                                        })
+                                else:
+                                    results.append({
+                                        "Input": item, "Name": "", "Number": "", "CNIC": "",
+                                        "Address": "", "Status": "Unexpected response format"
+                                    })
+                            except Exception as e:
                                 results.append({
                                     "Input": item, "Name": "", "Number": "", "CNIC": "",
-                                    "Address": "", "Status": data["error"]
+                                    "Address": "", "Status": f"Request Failed: {e}"
                                 })
+                    df = pd.DataFrame(results)
+                    st.success(f"Results found: {len(df)}")
+                    st.dataframe(df, use_container_width=True)
+                    excel_buffer = BytesIO()
+                    df.to_excel(excel_buffer, index=False)
+                    excel_buffer.seek(0)
+                    st.download_button(
+                        label="⬇️ Download Excel", data=excel_buffer,
+                        file_name="sim_info_results.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
+
+        elif input_method == "Upload Excel File":
+            st.subheader("Upload and Process Excel File")
+            uploaded_file = st.file_uploader("Choose an Excel file", type="xlsx")
+
+            if uploaded_file is not None:
+                try:
+                    # Read the 'mobile numbers' sheet
+                    df_upload = pd.read_excel(uploaded_file, sheet_name="Mobile Numbers")
+                    
+                    if "Mobile Number" not in df_upload.columns:
+                        st.error("The 'mobile numbers' sheet must contain a 'Phone Number' column.")
+                    else:
+                        st.write("Original Data:")
+
+                        if st.button("🚀 Fetch Data and Append to Excel"):
+                            items = df_upload["Mobile Number"].dropna().astype(str).tolist()
+                            
+                            # Add '0' to 10-digit numbers
+                            processed_items = []
+                            for item in items:
+                                if item.endswith(".0"):
+                                    item = item[:-2]
+                                if len(item) == 10 and item.isdigit():
+                                    processed_items.append("0" + item)
+                                else:
+                                    processed_items.append(item)
+                            items = processed_items
+                            
+                            if not items:
+                                st.error("No phone numbers found in the 'Phone Number' column.")
                             else:
-                                results.append({
-                                    "Input": item, "Name": data.get("name", ""), "Number": data.get("number", ""),
-                                    "CNIC": data.get("cnic", ""), "Address": data.get("address", ""), "Status": "Found"
-                                })
-                        except Exception as e:
-                            results.append({
-                                "Input": item, "Name": "", "Number": "", "CNIC": "",
-                                "Address": "", "Status": "Request Failed"
-                            })
-                df = pd.DataFrame(results)
-                st.success(f"Results found: {len(df)}")
-                st.dataframe(df, use_container_width=True)
-                excel_buffer = BytesIO()
-                df.to_excel(excel_buffer, index=False)
-                excel_buffer.seek(0)
-                st.download_button(
-                    label="⬇️ Download Excel", data=excel_buffer,
-                    file_name="sim_info_results.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
+                                table_placeholder = st.empty()
+                                all_results = []
+                                
+                                with st.spinner("Fetching data for all numbers..."):
+                                    for item in items:
+                                        try:
+                                            response = requests.post(f"{SIM_BACKEND_URL}?phone_number={item}", timeout=10)
+                                            data = response.json()
+                                            if isinstance(data, list) and data:
+                                                for record in data:
+                                                    all_results.append({
+                                                        "Original Phone Number": item,
+                                                        "Name": record.get("name"),
+                                                        "Number": record.get("number"),
+                                                        "CNIC": record.get("cnic"),
+                                                        "Address": record.get("address")
+                                                    })
+                                            else:
+                                                all_results.append({
+                                                    "Original Phone Number": item, "Name": "Not Found",
+                                                    "Number": "", "CNIC": "", "Address": ""
+                                                })
+                                        except Exception:
+                                            all_results.append({
+                                                "Original Phone Number": item, "Name": "Request Failed",
+                                                "Number": "", "CNIC": "", "Address": ""
+                                            })
+                                        
+                                        df_results = pd.DataFrame(all_results)
+                                        table_placeholder.dataframe(df_results)
+
+                                df_results = pd.DataFrame(all_results)
+                                df_upload_updated = df_upload.merge(df_results, how='left', left_on="Phone Number", right_on="Original Phone Number")
+                                df_upload_updated = df_upload_updated.drop(columns=["Original Phone Number"])
+
+                                st.success("Data fetching complete!")
+                                st.write("Final Updated Data:", df_upload_updated)
+                                
+                                # Download button for the updated file
+                                excel_buffer_updated = BytesIO()
+                                df_upload_updated.to_excel(excel_buffer_updated, index=False)
+                                excel_buffer_updated.seek(0)
+                                st.download_button(
+                                    label="⬇️ Download Updated Excel File",
+                                    data=excel_buffer_updated,
+                                    file_name="updated_sim_info.xlsx",
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                )
+                except Exception as e:
+                    st.error(f"An error occurred: {e}")
 
     elif search_type == "Vehicle Info":
         st.header("Sindh Vehicle Details")
@@ -234,7 +336,7 @@ def show_main_app():
                             df = pd.DataFrame(vehicle_data)
                             st.table(df)
                     except Exception as e:
-                        st.error("Failed to connect to vehicle backend.")
+                        st.error(f"Server loaded try again later")
     st.markdown("""
     ---
     *Disclaimer: This tool uses third-party public APIs. Data accuracy is not guaranteed.*

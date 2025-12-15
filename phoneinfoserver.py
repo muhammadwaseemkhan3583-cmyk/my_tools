@@ -30,7 +30,6 @@ async def get_phone_info(phone_number: str):
 
         # 1️⃣ HTTP check
         if response.status_code != 200:
-            print("STATUS:", response.status_code)
             return {"error": f"HTTP Error {response.status_code}"}
 
         # 2️⃣ Empty response check
@@ -39,7 +38,6 @@ async def get_phone_info(phone_number: str):
 
         # 3️⃣ Content-Type check
         content_type = response.headers.get("content-type", "")
-        print("TYPE:", response.headers.get("content-type"))
         if "application/json" not in content_type:
             return {
                 "error": "Non-JSON response received (likely blocked)",
@@ -50,26 +48,14 @@ async def get_phone_info(phone_number: str):
         try:
             data = response.json()
         except ValueError:
-
-
-            print("STATUS:", response.status_code)
-            print("TYPE:", response.headers.get("content-type"))
-            print("BODY:", response.text[:300])
-
             return {"error": "Invalid JSON response"}
 
             
         
         # Check if the API call was successful and if any data was returned
         if data.get("success") and data.get("data") and len(data["data"]) > 0:
-            # We will return the first record found
-            info = data["data"][0]
-            return {
-                "name": info.get("name"),
-                "number": info.get("number"),
-                "cnic": info.get("cnic"),
-                "address": info.get("address")
-            }
+            # We will return all records found
+            return data["data"]
         else:
             return {"error": "No record found for this number."}
 
@@ -88,7 +74,7 @@ async def get_vehicle_info(reg_no: str, category: str):
     }
 
     try:
-        response = requests.get(api_url, params=params)
+        response = requests.get(api_url, params=params, timeout=15)
         response.raise_for_status()
         
         data = response.json()
